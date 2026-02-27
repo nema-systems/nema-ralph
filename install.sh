@@ -113,14 +113,22 @@ create_install_dirs() {
 # Install Ralph scripts
 install_scripts() {
     log "INFO" "Installing Ralph scripts..."
-    
-    # Copy templates to Ralph home (dotglob needed for dotfiles like .gitignore)
-    shopt -s dotglob
-    cp -r "$SCRIPT_DIR/templates/"* "$RALPH_HOME/templates/"
-    shopt -u dotglob
 
-    # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh)
-    cp -r "$SCRIPT_DIR/lib/"* "$RALPH_HOME/lib/"
+    if [[ "$DEV_MODE" == "true" ]]; then
+        # Dev mode: symlink everything so edits to the repo take effect immediately
+        rm -rf "$RALPH_HOME/templates" "$RALPH_HOME/lib"
+        ln -sf "$SCRIPT_DIR/templates" "$RALPH_HOME/templates"
+        ln -sf "$SCRIPT_DIR/lib" "$RALPH_HOME/lib"
+        log "INFO" "Dev mode: symlinked templates/ and lib/ → $SCRIPT_DIR"
+    else
+        # Copy templates to Ralph home (dotglob needed for dotfiles like .gitignore)
+        shopt -s dotglob
+        cp -r "$SCRIPT_DIR/templates/"* "$RALPH_HOME/templates/"
+        shopt -u dotglob
+
+        # Copy lib scripts (response_analyzer.sh, circuit_breaker.sh)
+        cp -r "$SCRIPT_DIR/lib/"* "$RALPH_HOME/lib/"
+    fi
     
     # Create the main ralph command
     cat > "$INSTALL_DIR/ralph" << 'EOF'
@@ -197,18 +205,22 @@ RALPH_HOME="$HOME/.ralph"
 exec "$RALPH_HOME/ralph_enable_ci.sh" "$@"
 EOF
 
-    # Copy actual script files to Ralph home with modifications for global operation
-    cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
-
-    # Copy PRD import script to Ralph home
-    cp "$SCRIPT_DIR/ralph_import.sh" "$RALPH_HOME/"
-
-    # Copy migration script to Ralph home
-    cp "$SCRIPT_DIR/migrate_to_ralph_folder.sh" "$RALPH_HOME/"
-
-    # Copy enable scripts to Ralph home
-    cp "$SCRIPT_DIR/ralph_enable.sh" "$RALPH_HOME/"
-    cp "$SCRIPT_DIR/ralph_enable_ci.sh" "$RALPH_HOME/"
+    if [[ "$DEV_MODE" == "true" ]]; then
+        # Dev mode: symlink scripts so edits take effect immediately
+        ln -sf "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/ralph_monitor.sh"
+        ln -sf "$SCRIPT_DIR/ralph_import.sh" "$RALPH_HOME/ralph_import.sh"
+        ln -sf "$SCRIPT_DIR/migrate_to_ralph_folder.sh" "$RALPH_HOME/migrate_to_ralph_folder.sh"
+        ln -sf "$SCRIPT_DIR/ralph_enable.sh" "$RALPH_HOME/ralph_enable.sh"
+        ln -sf "$SCRIPT_DIR/ralph_enable_ci.sh" "$RALPH_HOME/ralph_enable_ci.sh"
+        log "INFO" "Dev mode: symlinked all scripts → $SCRIPT_DIR"
+    else
+        # Copy actual script files to Ralph home
+        cp "$SCRIPT_DIR/ralph_monitor.sh" "$RALPH_HOME/"
+        cp "$SCRIPT_DIR/ralph_import.sh" "$RALPH_HOME/"
+        cp "$SCRIPT_DIR/migrate_to_ralph_folder.sh" "$RALPH_HOME/"
+        cp "$SCRIPT_DIR/ralph_enable.sh" "$RALPH_HOME/"
+        cp "$SCRIPT_DIR/ralph_enable_ci.sh" "$RALPH_HOME/"
+    fi
 
     # Make all commands executable
     chmod +x "$INSTALL_DIR/ralph"
@@ -231,16 +243,20 @@ EOF
 # Install global ralph_loop.sh
 install_ralph_loop() {
     log "INFO" "Installing global ralph_loop.sh..."
-    
-    # Create modified ralph_loop.sh for global operation
-    sed \
-        -e "s|RALPH_HOME=\"\$HOME/.ralph\"|RALPH_HOME=\"\$HOME/.ralph\"|g" \
-        -e "s|\$script_dir/ralph_monitor.sh|\$RALPH_HOME/ralph_monitor.sh|g" \
-        -e "s|\$script_dir/ralph_loop.sh|\$RALPH_HOME/ralph_loop.sh|g" \
-        "$SCRIPT_DIR/ralph_loop.sh" > "$RALPH_HOME/ralph_loop.sh"
-    
+
+    if [[ "$DEV_MODE" == "true" ]]; then
+        ln -sf "$SCRIPT_DIR/ralph_loop.sh" "$RALPH_HOME/ralph_loop.sh"
+        log "INFO" "Dev mode: symlinked ralph_loop.sh → $SCRIPT_DIR/ralph_loop.sh"
+    else
+        # Create modified ralph_loop.sh for global operation
+        sed \
+            -e "s|RALPH_HOME=\"\$HOME/.ralph\"|RALPH_HOME=\"\$HOME/.ralph\"|g" \
+            -e "s|\$script_dir/ralph_monitor.sh|\$RALPH_HOME/ralph_monitor.sh|g" \
+            -e "s|\$script_dir/ralph_loop.sh|\$RALPH_HOME/ralph_loop.sh|g" \
+            "$SCRIPT_DIR/ralph_loop.sh" > "$RALPH_HOME/ralph_loop.sh"
+    fi
+
     chmod +x "$RALPH_HOME/ralph_loop.sh"
-    
     log "SUCCESS" "Global ralph_loop.sh installed"
 }
 
@@ -314,8 +330,11 @@ main() {
 }
 
 # Handle command line arguments
+DEV_MODE=false
+[[ "${1:-}" == "--dev" || "${2:-}" == "--dev" ]] && DEV_MODE=true
+
 case "${1:-install}" in
-    install)
+    install|--dev)
         main
         ;;
     uninstall)

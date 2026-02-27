@@ -791,8 +791,16 @@ enable_ralph_in_directory() {
     fi
 
     # Generate and create files
+    local templates_dir
+    templates_dir=$(get_templates_dir 2>/dev/null) || true
+
     local prompt_content
-    prompt_content=$(generate_prompt_md "$project_name" "$DETECTED_PROJECT_TYPE" "$DETECTED_FRAMEWORK")
+    if [[ -n "${ENABLE_TEMPLATE:-}" && -n "$templates_dir" && -f "$templates_dir/${ENABLE_TEMPLATE}-PROMPT.md" ]]; then
+        prompt_content=$(<"$templates_dir/${ENABLE_TEMPLATE}-PROMPT.md")
+        enable_log "INFO" "Using ${ENABLE_TEMPLATE} PROMPT template"
+    else
+        prompt_content=$(generate_prompt_md "$project_name" "$DETECTED_PROJECT_TYPE" "$DETECTED_FRAMEWORK")
+    fi
     safe_create_file ".ralph/PROMPT.md" "$prompt_content"
 
     local agent_content
@@ -800,12 +808,15 @@ enable_ralph_in_directory() {
     safe_create_file ".ralph/AGENT.md" "$agent_content"
 
     local fix_plan_content
-    fix_plan_content=$(generate_fix_plan_md "$task_content")
+    if [[ -n "${ENABLE_TEMPLATE:-}" && -n "$templates_dir" && -f "$templates_dir/${ENABLE_TEMPLATE}-fix-plan.md" ]]; then
+        fix_plan_content=$(<"$templates_dir/${ENABLE_TEMPLATE}-fix-plan.md")
+        enable_log "INFO" "Using ${ENABLE_TEMPLATE} fix-plan template"
+    else
+        fix_plan_content=$(generate_fix_plan_md "$task_content")
+    fi
     safe_create_file ".ralph/fix_plan.md" "$fix_plan_content"
 
     # Copy .gitignore template to project root (if available)
-    local templates_dir
-    templates_dir=$(get_templates_dir 2>/dev/null) || true
     if [[ -n "$templates_dir" ]] && [[ -f "$templates_dir/.gitignore" ]]; then
         local gitignore_content
         gitignore_content=$(<"$templates_dir/.gitignore")

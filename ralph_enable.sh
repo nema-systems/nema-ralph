@@ -45,6 +45,8 @@ PRD_FILE=""
 GITHUB_LABEL=""
 NON_INTERACTIVE=false
 SHOW_HELP=false
+TEMPLATE_NAME=""
+export ENABLE_TEMPLATE=""
 
 # Version
 VERSION="0.11.0"
@@ -139,6 +141,15 @@ parse_arguments() {
                     shift 2
                 else
                     echo "Error: --label requires a label name" >&2
+                    exit $ENABLE_INVALID_ARGS
+                fi
+                ;;
+            --template)
+                if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
+                    TEMPLATE_NAME="$2"
+                    shift 2
+                else
+                    echo "Error: --template requires a name (e.g. safety)" >&2
                     exit $ENABLE_INVALID_ARGS
                 fi
                 ;;
@@ -539,6 +550,32 @@ phase_verification() {
 }
 
 # =============================================================================
+# PHASE 4: INTAKE QUESTIONS (only when --template is set)
+# =============================================================================
+
+phase_intake() {
+    [[ -z "$TEMPLATE_NAME" ]] && return 0
+
+    local templates_dir
+    templates_dir=$(get_templates_dir 2>/dev/null) || true
+
+    if [[ -z "$templates_dir" ]]; then
+        print_warning "Templates directory not found — skipping intake"
+        return 0
+    fi
+
+    local intake_script="$templates_dir/${TEMPLATE_NAME}-intake.sh"
+    if [[ ! -f "$intake_script" ]]; then
+        print_warning "No intake script found for template '${TEMPLATE_NAME}' — skipping intake"
+        return 0
+    fi
+
+    print_header "System Intake" "Template: ${TEMPLATE_NAME}"
+    # shellcheck source=/dev/null
+    source "$intake_script"
+}
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -559,10 +596,14 @@ main() {
     echo -e "\033[1m╚════════════════════════════════════════════════════════════╝\033[0m"
     echo ""
 
+    # Export template name for enable_core.sh
+    export ENABLE_TEMPLATE="$TEMPLATE_NAME"
+
     # Run phases
     phase_environment_detection
     phase_task_source_selection
     phase_configuration
+    phase_intake
     phase_file_generation
     phase_verification
 
