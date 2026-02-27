@@ -266,6 +266,10 @@ setup_tmux_session() {
 
     # Create new tmux session detached (left pane - Ralph loop)
     tmux new-session -d -s "$session_name" -c "$project_dir"
+    tmux set-option -t "$session_name" mouse on
+    # Smooth 1-line-per-notch scrolling
+    tmux bind-key -T "$session_name" -n WheelUpPane if-shell -Ft= '#{pane_in_mode}' 'send-keys -X scroll-up' 'copy-mode -e; send-keys -X scroll-up'
+    tmux bind-key -T "$session_name" -n WheelDownPane if-shell -Ft= '#{pane_in_mode}' 'send-keys -X scroll-down' 'send-keys -M'
 
     # Split window vertically (right side)
     tmux split-window -h -t "$session_name" -c "$project_dir"
@@ -273,8 +277,8 @@ setup_tmux_session() {
     # Split right pane horizontally (top: Claude output, bottom: status)
     tmux split-window -v -t "$session_name:${base_win}.1" -c "$project_dir"
 
-    # Right-top pane (pane 1): Live Claude Code output
-    tmux send-keys -t "$session_name:${base_win}.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
+    # Right-top pane (pane 1): Token stats monitor
+    tmux send-keys -t "$session_name:${base_win}.1" "'$ralph_home/ralph_tokens.sh' '$project_dir'" Enter
 
     # Right-bottom pane (pane 2): Ralph status monitor
     if command -v ralph-monitor &> /dev/null; then
@@ -345,7 +349,7 @@ setup_tmux_session() {
 
     # Set pane titles (requires tmux 2.6+)
     tmux select-pane -t "$session_name:${base_win}.0" -T "Ralph Loop"
-    tmux select-pane -t "$session_name:${base_win}.1" -T "Claude Output"
+    tmux select-pane -t "$session_name:${base_win}.1" -T "Tokens"
     tmux select-pane -t "$session_name:${base_win}.2" -T "Status"
 
     # Set window title
@@ -1195,13 +1199,28 @@ execute_claude_code() {
         # These are required for stream-json to work properly
         LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
 
-        # jq filter: show text + tool names + newlines for readability
+        # jq filter: show thinking + text + tool calls + token counts
         local jq_filter='
             if .type == "stream_event" then
-                if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
-                    .event.delta.text
-                elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
-                    "\n\n⚡ [" + .event.content_block.name + "]\n"
+                if .event.type == "content_block_delta" then
+                    if .event.delta.type == "text_delta" then
+                        .event.delta.text
+                    elif .event.delta.type == "thinking_delta" then
+                        .event.delta.thinking
+                    elif .event.delta.type == "input_json_delta" then
+                        .event.delta.partial_json
+                    else empty end
+                elif .event.type == "content_block_start" then
+                    if .event.content_block.type == "tool_use" then
+                        "\n\n⚡ [" + .event.content_block.name + "] "
+                    elif .event.content_block.type == "thinking" then
+                        "\n💭 "
+                    else empty end
+                elif .event.type == "message_delta" and (.event.usage // null) != null then
+                    "\n[tokens → in:" + (.event.usage.input_tokens | tostring) +
+                    " cache_read:" + ((.event.usage.cache_read_input_tokens // 0) | tostring) +
+                    " cache_write:" + ((.event.usage.cache_creation_input_tokens // 0) | tostring) +
+                    " out:" + (.event.usage.output_tokens | tostring) + "]\n"
                 elif .event.type == "content_block_stop" then
                     "\n"
                 else
@@ -1519,6 +1538,8 @@ EOF
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+    # Kill the entire process group so child pipelines (Claude, jq, tee) also die
+    kill -- -$$ 2>/dev/null || true
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     exit 0
